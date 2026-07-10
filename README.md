@@ -1,6 +1,6 @@
 # Heart Disease Risk Prediction
 
-[Link to Project](https://samuildd.github.io/Heart-Disease-Model-Selection/Output/heart_disease_prediction.html)
+[Link to Project](https://samuildd.github.io/Heart-Disease-Model-Selection/Output/Heart_Disease_Model_Selection.html)
 
 A logistic regression workflow for predicting the presence of heart disease from clinical measurements that cover model diagnostics, automated model selection, cross-validated performance comparison, and ROC analysis.
 
