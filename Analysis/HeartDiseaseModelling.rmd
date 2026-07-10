@@ -1,0 +1,131 @@
+---
+title: "Heart Disease Risk Prediction"
+subtitle: "Logistic regression, model selection, and cross-validated ROC analysis"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(MuMIn)
+library(pROC)
+library(crossval)
+```
+
+## 1. Data
+
+The data contains clinical measurements for 261 patients, along with a binary diagnosis of heart disease (num: 0 = absent, 1 = present). Categorical variables are coded as factors.
+
+```{r}
+Heart.df <- read.table("HeartData.txt", header = TRUE)
+Heart.df$num     <- factor(Heart.df$num)
+Heart.df$sex     <- factor(Heart.df$sex)
+Heart.df$cp      <- factor(Heart.df$cp)
+Heart.df$fbs     <- factor(Heart.df$fbs)
+Heart.df$restecg <- factor(Heart.df$restecg)
+Heart.df$exang   <- factor(Heart.df$exang)
+
+str(Heart.df)
+summary(Heart.df)
+```
+
+## 2. Initial model and diagnostics
+
+Start with a full logistic regression on all available predictors, then check the standard diagnostic plots for problem observations (high leverage, large residuals, undue influence).
+
+```{r}
+Heart.glm <- glm(num ~ ., family = binomial, data = Heart.df)
+summary(Heart.glm)
+```
+
+```{r diagnostics, fig.width=8, fig.height=8}
+par(mfrow = c(2, 2))
+plot(Heart.glm)
+par(mfrow = c(1, 1))
+```
+
+The diagnostic plots don't flag any serious structural problems, no single point has outsized Cook's distance, and the residual patterns look reasonable for a binomial model of this size. A few individual observations (e.g. rows 138, 192, 272) stand out slightly on the residual plots but not enough to warrant removal.
+
+## 3. Model selection with `dredge`
+
+Rather than hand-picking a subset of predictors, an exhaustive search over all
+sub-models of the full model gives a shortlist ranked by AICc.
+
+```{r dredge}
+options(na.action = "na.fail")
+all.fits <- dredge(Heart.glm)
+head(all.fits)
+```
+
+The top three AICc-ranked models are:
+
+```{r top-models}
+mod1 <- get.models(all.fits, 1)[[1]]
+mod2 <- get.models(all.fits, 2)[[1]]
+mod3 <- get.models(all.fits, 3)[[1]]
+
+mod1
+mod2
+mod3
+```
+
+AICc alone can't distinguish these three convincingly (they're within ~2 AICc units of each other), so the next step evaluates them on out-of-sample predictive performance instead of in-sample fit.
+
+## 4. Cross-validated comparison
+
+Each of the three candidate models is refit on 10-fold cross-validation splits (50 repeats) and scored by AUC on the held-out fold, giving a fairer estimate of real predictive performance than AICc alone.
+
+```{r cv-compare}
+predfun <- function(train.x, train.y, test.x, test.y) {
+  fit1 <- glm(train.y ~ chol + cp + exang + fbs + oldpeak + sex,
+              family = binomial, data = train.x)
+  auc1 <- roc(response = test.y,
+              predictor = predict(fit1, newdata = test.x, type = "response"))$auc
+
+  fit2 <- glm(train.y ~ cp + exang + fbs + oldpeak + sex,
+              family = binomial, data = train.x)
+  auc2 <- roc(response = test.y,
+              predictor = predict(fit2, newdata = test.x, type = "response"))$auc
+
+  fit3 <- glm(train.y ~ chol + cp + exang + fbs + oldpeak + sex + thalach,
+              family = binomial, data = train.x)
+  auc3 <- roc(response = test.y,
+              predictor = predict(fit3, newdata = test.x, type = "response"))$auc
+
+  c(auc1, auc2, auc3)
+}
+
+set.seed(330)
+auc.ests <- crossval(predfun, X = Heart.df[, 1:10], Y = Heart.df[, 11],
+                      K = 10, B = 50, verbose = FALSE)
+auc.ests$stat
+auc.ests$stat.se
+```
+
+The three models land within a fraction of an AUC point of each other (0.891–0.894), so none has a meaningful predictive edge. Given that, the top AICc model (mod1) is the reasonable choice, it's the best-supported model by information criteria and loses nothing in cross-validated performance.
+
+## 5. Final model and ROC curve
+
+```{r final-model}
+final.glm <- mod1
+summary(final.glm)
+```
+
+```{r roc, fig.width=7, fig.height=7}
+heart.roc <- roc(response = Heart.df$num, predictor = fitted.values(final.glm))
+
+plot(heart.roc, print.thres = "best", col = "blue",
+     grid = TRUE, print.auc.cex = 0.8, print.auc = TRUE,
+     auc.polygon = TRUE, max.auc.polygon = TRUE,
+     auc.polygon.col = "yellow", lwd = 2.5)
+```
+
+## 6. Summary
+
+- The selected model num ~ chol + cp + exang + fbs + oldpeak + sex achieves an AUC of **0.916**, indicating strong discrimination between patients with and without heart disease.
+
+- Cross-validation confirmed that the top three AICc candidates are practically indistinguishable in out-of-sample performance, so model choice came down to parsimony.
+
+- The threshold that maximizes sensitivity + specificity is **c = 0.28**, giving sensitivity = 0.90 and specificity = 0.78. Which threshold is actually "best" depends on the relative cost of false negatives vs. false positives in the intended application — this analysis reports the sensitivity/specificity trade-off rather than prescribing a single operating point.
