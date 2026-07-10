@@ -9,9 +9,12 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
-library(MuMIn)
-library(pROC)
+library(tidyverse)
+library(GGally)
 library(crossval)
+library(MuMIn)
+library(mgcv)
+library(pROC)
 ```
 
 ## 1. Data
@@ -33,7 +36,21 @@ summary(Heart.df)
 
 ## 2. Initial model and diagnostics
 
-Start with a full logistic regression on all available predictors, then check the standard diagnostic plots for problem observations (high leverage, large residuals, undue influence).
+Begin by checking the relationship and correlation among variables and how if there is any multicollinearity
+```{r}
+Heart.df %>%
+  ggpairs(columns = c(1,4,5,8,10))
+```
+
+Utilising the GAM model to evaluate the shape and complexity.
+```{r}
+heart.gam <- gam(num ~ s(age)+ sex + cp +s(trestbps) + s(chol)+ fbs+ 
+                   restecg + s(thalach) + exang + s(oldpeak),
+                 binomial, data = Heart.df)
+plot(heart.gam)
+```
+
+Full logistic regression on all available predictors, then check the standard diagnostic plots for problem observations (high leverage, large residuals, undue influence).
 
 ```{r}
 Heart.glm <- glm(num ~ ., family = binomial, data = Heart.df)
